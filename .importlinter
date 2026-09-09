@@ -1,0 +1,17 @@
+# The one boundary enforced as a hard CI check (`lint-imports`).
+#
+# `core` is the pure capability (CVSS metric selection, the scoring seam, and
+# deviation planning). `app` is everything that touches the outside world (the
+# Paramify + NVD clients, settings, output, orchestration, the Typer CLI).
+# `core` must never import `app` — that is what keeps the scoring/planning logic
+# testable with plain data and liftable into a schedule or another host.
+[importlinter]
+root_package = cvss_adjuster
+
+[importlinter:contract:core-stays-pure]
+name = core stays pure — no imports from app
+type = forbidden
+source_modules =
+    cvss_adjuster.core
+forbidden_modules =
+    cvss_adjuster.app

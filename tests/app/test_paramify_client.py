@@ -1,0 +1,158 @@
+"""Tests for the hand-rolled Paramify client.
+
+This is the one piece with no upstream to inherit correctness from, so it gets
+real coverage: URL joining, the auth header, envelope unwrapping, the scope guard,
+and the status -> typed-exception mapping. ``httpx.MockTransport`` exercises the
+real construction path without touching the network.
+"""
+
+import httpx
+import pytest
+
+from cvss_adjuster.app.clients.errors import (
+    ParamifyAPIError,
+    ParamifyAuthError,
+    ParamifyConfigError,
+    ParamifyNotFoundError,
+)
+from cvss_adjuster.app.clients.paramify import ParamifyClient, build_http_client
+from cvss_adjuster.app.settings import Settings
+
+SETTINGS = Settings(paramify_api_key="k-123", paramify_url="https://app.paramify.com/api/v0")
+
+
+def _client(handler) -> ParamifyClient:
+    http = build_http_client(SETTINGS, transport=httpx.MockTransport(handler))
+    return ParamifyClient(SETTINGS, http=http)
+
+
+def test_base_url_joins_without_swallowing_the_api_prefix():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"projects": []})
+
+    _client(handler).list_programs()
+    # The classic bug this guards: "/api/v0" + "projects" -> "/api/v0projects".
+    assert seen["url"] == "https://app.paramify.com/api/v0/projects"
+
+
+def test_bearer_token_is_sent():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("Authorization")
+        return httpx.Response(200, json={"projects": []})
+
+    _client(handler).list_programs()
+    assert seen["auth"] == "Bearer k-123"
+
+
+def test_list_endpoints_unwrap_their_envelope():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"projects": [{"id": "P1"}, {"id": "P2"}]})
+
+    assert [p["id"] for p in _client(handler).list_programs()] == ["P1", "P2"]
+
+
+def test_list_endpoints_tolerate_a_bare_list():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"id": "P1"}])
+
+    assert [p["id"] for p in _client(handler).list_programs()] == ["P1"]
+
+
+def test_get_issues_sends_the_project_scope():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"issues": [{"id": "ISS-1"}]})
+
+    issues = _client(handler).get_issues(project_id="PRJ-1")
+    assert "projectId=PRJ-1" in seen["url"]
+    assert issues[0]["id"] == "ISS-1"
+
+
+def test_get_issues_without_a_scope_is_refused_before_any_request():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("should never be called")
+
+    with pytest.raises(ParamifyConfigError, match="requires a scope"):
+        _client(handler).get_issues(cve_ids=["CVE-2021-44228"])
+
+
+def test_missing_api_key_is_caught_before_any_request():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("should never be called")
+
+    settings = Settings(paramify_api_key=None)
+    http = build_http_client(settings, transport=httpx.MockTransport(handler))
+    with pytest.raises(ParamifyConfigError, match="PARAMIFY_API_KEY"):
+        ParamifyClient(settings, http=http).list_programs()
+
+
+def test_create_deviation_posts_the_body():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = request.read().decode()
+        return httpx.Response(201, json={"id": "dev-1"})
+
+    body = {"description": "NVD CVSS max base score 9.8", "type": "RISK_ADJUSTMENT"}
+    result = _client(handler).create_deviation("ISS-1", body)
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v0/issues/ISS-1/deviations"
+    assert "RISK_ADJUSTMENT" in seen["body"]
+    assert result["id"] == "dev-1"
+
+
+def test_update_deviation_patches_the_right_path():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"id": "dev-1"})
+
+    _client(handler).update_deviation("ISS-1", "dev-1", {"description": "x"})
+    assert seen["method"] == "PATCH"
+    assert seen["path"] == "/api/v0/issues/ISS-1/deviations/dev-1"
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (401, ParamifyAuthError),
+        (403, ParamifyAuthError),
+        (404, ParamifyNotFoundError),
+        (500, ParamifyAPIError),
+    ],
+)
+def test_status_codes_map_to_typed_errors(status, expected):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"error": "nope", "requestId": "req-7"})
+
+    with pytest.raises(expected) as excinfo:
+        _client(handler).list_programs()
+    assert excinfo.value.status_code == status
+    assert excinfo.value.request_id == "req-7"
+    assert "nope" in str(excinfo.value)
+
+
+def test_non_json_error_body_still_raises_cleanly():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text="<html>bad gateway</html>")
+
+    with pytest.raises(ParamifyAPIError, match="bad gateway"):
+        _client(handler).list_programs()
+
+
+def test_empty_response_body_is_none_not_a_crash():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204)
+
+    assert _client(handler).create_deviation("ISS-1", {}) == {}
