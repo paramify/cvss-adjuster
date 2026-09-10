@@ -40,8 +40,23 @@ class ParamifyAPIError(ParamifyError):
         detail: Any = body
         if isinstance(body, dict):
             self.request_id = body.get("requestId")
-            detail = body.get("error") or body.get("statusMessage") or body
+            detail = _detail(body)
         super().__init__(f"{method} /{path} -> {status_code}: {detail}")
+
+
+def _detail(body: dict[str, Any]) -> Any:
+    """Pull the human-readable message out of an API error body.
+
+    The shape is ``{requestId, statusMessage, error: {message, path, timestamp}}``
+    — the readable text is nested one level down inside ``error``, so reaching only
+    for ``body["error"]`` yields a dict and prints timestamps and paths at the
+    user. Flat shapes (a string ``error``, a top-level ``message``) are handled too,
+    since this is the kind of response that changes without warning.
+    """
+    error = body.get("error")
+    if isinstance(error, dict):
+        return error.get("message") or error.get("statusMessage") or error
+    return error or body.get("message") or body.get("statusMessage") or body
 
 
 class ParamifyAuthError(ParamifyAPIError):
