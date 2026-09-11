@@ -87,3 +87,39 @@ def test_duplicates_emit_warning():
         **KW,
     )
     assert plan.warnings and "2 tool-created" in plan.warnings[0]
+
+
+def test_noop_when_the_api_appended_a_trailing_newline():
+    """Regression: Paramify stores the description with a trailing newline.
+
+    A byte-exact comparison made every rerun plan an update of a row that was
+    already correct, so the tool never reached a steady state. Caught against the
+    live stage API, not by the fakes — they echoed back exactly what was sent.
+    """
+    desc = build_description(7.5, "CVE-1", ["CVE-1"], "iss-1", "CVSS:3.1/AV:N")
+    plan = plan_deviation(
+        "iss-1",
+        nvd_score=7.5,
+        winning_cve="CVE-1",
+        cve_ids=["CVE-1"],
+        vector="CVSS:3.1/AV:N",
+        existing_deviations=[_existing(desc + "\n", level="HIGH")],
+        **KW,
+    )
+    assert plan.action == "noop"
+
+
+def test_still_updates_when_the_score_really_moved():
+    """The strip() must not make it blind to a real change."""
+    stale = build_description(4.0, "CVE-1", ["CVE-1"], "iss-1", "CVSS:3.1/AV:N")
+    plan = plan_deviation(
+        "iss-1",
+        nvd_score=9.9,
+        winning_cve="CVE-1",
+        cve_ids=["CVE-1"],
+        vector="CVSS:3.1/AV:N",
+        existing_deviations=[_existing(stale + "\n", level="MODERATE")],
+        **KW,
+    )
+    assert plan.action == "update"
+    assert plan.body["deviationMetadata"]["adjustedLevel"] == "CRITICAL"

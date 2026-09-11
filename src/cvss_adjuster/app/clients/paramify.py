@@ -11,6 +11,10 @@ repo that installs anywhere and can be read end-to-end by whoever runs it.
     POST   issues/{id}/deviations                    -> create_deviation
     PATCH  issues/{id}/deviations/{deviationId}      -> update_deviation
 
+Verified against the Paramify OpenAPI spec v0.9.0: paths, query-parameter names,
+response envelope keys, and the deviation request body (required fields plus the
+``method`` / ``type`` / ``status`` / ``adjustedLevel`` enums).
+
 Responses come back as plain ``dict``s. The API returns camelCase keys and adds
 fields over time; passing them through untouched means a new field arrives
 automatically, and keeps API shapes out of the pure ``core`` logic.
@@ -138,7 +142,12 @@ class ParamifyClient:
         """POST /issues/{issueId}/deviations
 
         ``body`` carries ``description``, ``method``, ``type``, and
-        ``deviationMetadata`` — built by ``core.vuln.deviation``.
+        ``deviationMetadata`` — the four fields the spec requires, all built by
+        ``core.vuln.deviation``.
+
+        Note: the API appends a trailing newline to ``description`` when it stores
+        one, on create as well as update. ``plan_deviation`` compares stripped
+        descriptions because of it — without that, a rerun never reaches "noop".
         """
         data = self.request("POST", f"issues/{issue_id}/deviations", json=body)
         return dict(data or {})

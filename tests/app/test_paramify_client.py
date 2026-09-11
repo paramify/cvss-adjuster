@@ -156,3 +156,42 @@ def test_empty_response_body_is_none_not_a_crash():
         return httpx.Response(204)
 
     assert _client(handler).create_deviation("ISS-1", {}) == {}
+
+
+def test_nested_error_message_is_surfaced_not_the_raw_object():
+    """Regression, captured from a live stage 401.
+
+    The API nests the readable text inside `error`, so reaching only for
+    body["error"] returns a dict and prints timestamps and paths at the user.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401,
+            json={
+                "requestId": "0b7b8609-c7c6-4e9b-bb0b-6c439f8d510f",
+                "statusMessage": "Unauthorized",
+                "error": {
+                    "message": "The credentials used are invalid.",
+                    "path": "/api/v0/projects",
+                    "timestamp": "2026-09-10T17:14:32.533Z",
+                },
+            },
+        )
+
+    with pytest.raises(ParamifyAuthError) as excinfo:
+        _client(handler).list_programs()
+    message = str(excinfo.value)
+    assert message == "GET /projects -> 401: The credentials used are invalid."
+    assert "timestamp" not in message
+    assert excinfo.value.request_id == "0b7b8609-c7c6-4e9b-bb0b-6c439f8d510f"
+
+
+def test_flat_error_string_still_works():
+    """A flat string `error` is the other shape seen in the wild."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "boom", "requestId": "req-7"})
+
+    with pytest.raises(ParamifyAPIError, match="boom"):
+        _client(handler).list_programs()

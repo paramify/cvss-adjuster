@@ -22,7 +22,11 @@ Smallest authenticated check: `cvss-adjust programs`.
 
 - **Get JSON**: pass `--json`, **or** set `CVSS_ADJUST_JSON=1` once. Parse JSON,
   never the human tables.
-- Human output is tab-separated, so `cut`/`awk` also work.
+- Human output is tab-separated whenever stdout is **not** a terminal — which is
+  always the case when shelling out — so `cut`/`awk` work. On a terminal the same
+  data renders as an aligned, severity-sorted table with a summary; that form is
+  for humans and is not a parsing target. `CVSS_ADJUST_PLAIN=1` forces the
+  tab-separated form.
 - **Exit codes**: `0` = success (*including* "nothing to do" — e.g. a program with
   no CVE-bearing issues), `1` = a real error (auth/config/API), `2` = a usage
   error. Do not treat exit `1` on an empty result as "the tool broke"; an empty

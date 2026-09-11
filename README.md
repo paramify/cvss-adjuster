@@ -60,8 +60,13 @@ cvss-adjust adjust-program --program-id PRJ-1     # the workflow (dry run)
 cvss-adjust programs                              # list programs / verify auth
 ```
 
-Every command takes `--json` for stable machine-readable output; human output is
-tab-separated, so `cut` and `awk` work too.
+Every command takes `--json` for stable machine-readable output. Text output
+adapts to where it is going: a terminal gets a severity-sorted table — the
+issue's `CURRENT` level beside the `ADJUSTED` level the deviation would record,
+plus a summary of how many levels the run raises, lowers, or leaves alone —
+while a pipe or a redirect gets the same rows tab-separated so `cut` and `awk`
+work unchanged. Set `CVSS_ADJUST_PLAIN=1` to force the tab-separated form even
+on a terminal.
 
 ```bash
 cvss-adjust adjust-program --program-id PRJ-1 --json | jq -r '.[] | select(.deviation_action == "would-update") | .poam_id'

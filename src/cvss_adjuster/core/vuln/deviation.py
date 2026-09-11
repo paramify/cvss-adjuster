@@ -108,8 +108,11 @@ def plan_deviation(
 
     existing = managed[0]
     meta = existing.get("deviationMetadata") or {}
+    # Compare descriptions *normalized*: the API appends a trailing newline when it
+    # stores one, so a byte-exact comparison against what we generate never matches
+    # and every rerun would plan a pointless update of a row that is already correct.
     already_matches = (
-        (existing.get("description") or "") == description
+        (existing.get("description") or "").strip() == description.strip()
         and existing.get("type") == deviation_type
         and existing.get("method") == method
         and meta.get("adjustedLevel") == adjusted_level

@@ -9,7 +9,13 @@ DEFAULT_METRIC_KEYS = ("cvssMetricV40", "cvssMetricV31")
 
 
 def cvss_score_to_level(score: float) -> str:
-    """Map an NVD base score to a Paramify ``adjustedLevel``."""
+    """Map an NVD base score to a Paramify ``adjustedLevel``.
+
+    The returned values are Paramify's own enum (per OpenAPI v0.9.0:
+    ``NOT_SET | CHILL | LOW | MODERATE | HIGH | CRITICAL``) — ``CHILL`` really is
+    the product's name for the lowest level, not a placeholder. The thresholds
+    follow the standard CVSS v3.1 severity bands.
+    """
     if score >= 9.0:
         return "CRITICAL"
     if score >= 7.0:
