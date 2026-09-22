@@ -92,7 +92,7 @@ def test_help_lists_every_command():
     result = runner.invoke(main.app, ["--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
-    for command in ("score", "adjust-program", "programs"):
+    for command in ("score", "set-original-levels", "programs"):
         assert command in out
 
 
@@ -125,63 +125,6 @@ def test_score_reports_the_winning_cve(monkeypatch):
     payload = json.loads(result.output)
     assert payload["nvd_score"] == 9.8
     assert payload["winning_cve"] == "CVE-1"
-
-
-def test_adjust_program_defaults_to_a_dry_run(monkeypatch):
-    monkeypatch.setattr(main, "build_context", lambda: _fake_context())
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1", "--json"])
-    assert result.exit_code == 0
-    assert json.loads(result.output)[0]["deviation_action"] == "would-create"
-
-
-def test_adjust_program_writes_with_the_flag(monkeypatch):
-    seen = {}
-
-    class Writing(FakeParamify):
-        def create_deviation(self, issue_id, body):
-            seen["issue"] = issue_id
-            return {"id": "dev-1", **body}
-
-    ctx = _fake_context()
-    ctx.paramify = Writing()
-    monkeypatch.setattr(main, "build_context", lambda: ctx)
-    result = runner.invoke(
-        main.app, ["adjust-program", "--program-id", "PRJ-1", "--post-deviations", "--json"]
-    )
-    assert result.exit_code == 0
-    assert seen["issue"] == "ISS-1"
-    assert json.loads(result.output)[0]["deviation_action"] == "created"
-
-
-def test_dry_run_overrides_post_deviations(monkeypatch):
-    class Exploding(FakeParamify):
-        def create_deviation(self, issue_id, body):  # pragma: no cover
-            raise AssertionError("--dry-run must prevent all writes")
-
-    ctx = _fake_context()
-    ctx.paramify = Exploding()
-    monkeypatch.setattr(main, "build_context", lambda: ctx)
-    result = runner.invoke(
-        main.app,
-        ["adjust-program", "--program-id", "PRJ-1", "--post-deviations", "--dry-run", "--json"],
-    )
-    assert result.exit_code == 0
-    assert json.loads(result.output)[0]["deviation_action"] == "would-create"
-
-
-def test_empty_program_is_success_not_an_error(monkeypatch):
-    """Nothing to do is exit 0. An empty result must never read as a failure."""
-
-    class Empty(FakeParamify):
-        def get_issues(self, **kwargs):
-            return []
-
-    ctx = _fake_context()
-    ctx.paramify = Empty()
-    monkeypatch.setattr(main, "build_context", lambda: ctx)
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1", "--json"])
-    assert result.exit_code == 0
-    assert json.loads(result.output) == []
 
 
 def test_unknown_command_is_a_usage_error():
@@ -218,87 +161,7 @@ def test_auth_error_hints_at_the_environment_mismatch(monkeypatch, capsys):
 
 
 
-# -- text output form: aligned for a terminal, tab-separated for a pipe ----------
-#
-# CliRunner's stdout is never a TTY, so the default in every test above is already
-# the tab-separated form. These force the other branch via output.interactive.
-
-
-def _tty(monkeypatch, on=True):
-    monkeypatch.setattr(output, "interactive", lambda: on)
-
-
-def test_adjust_program_text_is_tab_separated_when_piped(monkeypatch):
-    """The pipe contract: no headers, no summary, tab-separated fields."""
-    monkeypatch.setattr(main, "build_context", lambda: _fake_context())
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1"])
-    assert result.exit_code == 0
-    first = result.stdout.splitlines()[0]
-    assert first.split("\t")[0] == "POAM-1"
-    assert "NVD=9.8(CRITICAL)" in first
-    assert "POAM" not in result.stdout.splitlines()[0].split("\t")[1:]  # no header row
-
-
-def test_adjust_program_renders_a_headed_table_on_a_terminal(monkeypatch):
-    monkeypatch.setattr(main, "build_context", lambda: _fake_context())
-    _tty(monkeypatch)
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1"])
-    assert result.exit_code == 0
-    lines = [_plain(line) for line in result.stdout.splitlines()]
-    assert lines[0].split() == [
-        "POAM", "SCORE", "CURRENT", "ADJUSTED", "CVE", "ACTION", "TITLE",
-    ]
-    assert lines[1].split() == [
-        "POAM-1", "9.8", "MODERATE", "CRITICAL", "CVE-1", "would-create", "Log4j",
-    ]
-
-
-def test_summary_counts_a_level_raise_against_the_current_level(monkeypatch):
-    """9.8 lands CRITICAL over a MODERATE issue — the point of the whole run."""
-    monkeypatch.setattr(main, "build_context", lambda: _fake_context())
-    _tty(monkeypatch)
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1"])
-    assert result.exit_code == 0
-    err = _plain(result.stderr)
-    assert "adjusted levels: 1 critical" in err
-    assert "vs current: 1 raised" in err
-
-
-def test_missing_current_level_is_unknown_not_a_silent_match(monkeypatch):
-    """An issue with no level must not be counted as "same" — there is no before."""
-
-    class NoLevel(FakeParamify):
-        def get_issues(self, **kwargs):
-            return [{"id": "ISS-1", "poamId": "POAM-1", "title": "Log4j", "cveIds": ["CVE-1"]}]
-
-    ctx = _fake_context()
-    ctx.paramify = NoLevel()
-    monkeypatch.setattr(main, "build_context", lambda: ctx)
-    _tty(monkeypatch)
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1"])
-    assert result.exit_code == 0
-    assert "vs current: 1 unknown" in _plain(result.stderr)
-    # and the row still renders, with an em dash standing in for the missing level
-    assert "—" in _plain(result.stdout).splitlines()[1]
-
-
-def test_plain_env_forces_tab_separated_even_on_a_terminal(monkeypatch):
-    """The escape hatch for a script that runs under an allocated TTY."""
-    monkeypatch.setattr(main, "build_context", lambda: _fake_context())
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
-    monkeypatch.setenv("CVSS_ADJUST_PLAIN", "1")
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1"])
-    assert result.exit_code == 0
-    assert result.stdout.splitlines()[0].split("\t")[0] == "POAM-1"
-
-
-def test_json_is_unaffected_by_the_terminal_branch(monkeypatch):
-    """--json must win over interactive(): machine output never gains a table."""
-    monkeypatch.setattr(main, "build_context", lambda: _fake_context())
-    _tty(monkeypatch)
-    result = runner.invoke(main.app, ["adjust-program", "--program-id", "PRJ-1", "--json"])
-    assert result.exit_code == 0
-    assert json.loads(result.stdout)[0]["deviation_action"] == "would-create"
+# -- text output form ----------------------------------------------------------
 
 
 def test_table_columns_stay_aligned_when_cells_are_styled():

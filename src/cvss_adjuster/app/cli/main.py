@@ -3,9 +3,9 @@
 Three flat commands — the tool does one job, so there is no porcelain/plumbing
 split to model:
 
-    score           one-shot: max NVD CVSS base score across some CVEs
-    adjust-program  the workflow: score a program's issues, sync their deviations
-    programs        list programs (also the cheapest authenticated call)
+    score                one-shot: max NVD CVSS base score across some CVEs
+    set-original-levels  the workflow: resolve and sync each issue's originalLevel
+    programs             list programs (also the cheapest authenticated call)
 
 Exit codes are part of the contract: 0 = the run succeeded (*including* a run that
 found nothing to do), 1 = a real error (auth/config/API), 2 = a usage error. An
@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import typer
 
-from cvss_adjuster.app.cli.commands import adjust, programs, score
+from cvss_adjuster.app.cli.commands import original_levels, programs, score
 from cvss_adjuster.app.cli.context import build_context
 from cvss_adjuster.app.clients.errors import (
     ParamifyAuthError,
     ParamifyConfigError,
     ParamifyError,
 )
+from cvss_adjuster.app.services import ScopeError
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -46,8 +47,9 @@ def _root(ctx: typer.Context) -> None:
 # Registration order is the --help order (Typer preserves it).
 app.command("score", help="Max NVD CVSS base score across the given CVEs.")(score.score)
 app.command(
-    "adjust-program", help="Score a program's CVE-bearing issues and sync deviations."
-)(adjust.adjust_program)
+    "set-original-levels",
+    help="Resolve originalLevel from NVD -> scanner CVSS -> scanner severity, and sync it.",
+)(original_levels.set_original_levels)
 app.command("programs", help="List programs (the cheapest authenticated call).")(
     programs.programs
 )
@@ -77,6 +79,8 @@ def run() -> None:
         )
     except ParamifyConfigError as e:
         _fail(e, "See required settings in .env.example / the README.")
+    except ScopeError as e:
+        _fail(e, "Run `cvss-adjust programs` to check auth, then name an assessment.")
     except ParamifyError as e:
         _fail(e)
 

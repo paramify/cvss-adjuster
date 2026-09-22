@@ -36,7 +36,17 @@ class Settings(BaseSettings):
     # keeps URLs well inside any server-side length limit.
     nvd_batch_size: int = 100
 
-    # Deviation defaults — the shape of the row this tool writes back.
-    deviation_type: str = "RISK_ADJUSTMENT"
-    deviation_method: str = "EXAMINE"
-    deviation_status: str = "PENDING"
+    # Scanner exports (Twistlock container scans). The scanner's own CVSS and
+    # severity columns are rungs 2 and 3 of the fallback ladder and exist
+    # nowhere in the Paramify API, so without this the ladder is NVD-only.
+    scan_dir: str | None = None
+    # Scope: the assessment whose issues get adjusted, by name or id. Resolved
+    # to its mechanism element, which is what an issue carries as
+    # `origin.name` — the only link the API offers from an issue back to an
+    # assessment.
+    assessment: str | None = None
+    # Never lower an existing originalLevel. Off by default: the customer asked
+    # for the ladder to set the original risk rating, which is authoritative in
+    # both directions. Turn on for a run where downgrades need a human first.
+    only_raise: bool = False
+
