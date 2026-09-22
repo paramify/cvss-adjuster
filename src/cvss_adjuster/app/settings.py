@@ -27,11 +27,14 @@ class Settings(BaseSettings):
     paramify_timeout: float = 60.0
     program_id: str | None = None
 
-    # NVD. Without an api key NVD allows 5 requests / 30s instead of 50; the
-    # client's inter-batch pause is tuned for a keyed caller, so a large program
-    # scanned without a key can be throttled.
+    # NVD. Without an api key NVD allows 5 requests / 30s instead of 50. The
+    # client paces itself to whichever limit applies, so an unkeyed run is slow
+    # rather than throttled — but a key is strongly recommended.
     nvd_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
     nvd_api_key: str | None = None
+    # CVEs per `cveIds` request. NVD accepts the comma-joined plural form; 100
+    # keeps URLs well inside any server-side length limit.
+    nvd_batch_size: int = 100
 
     # Deviation defaults — the shape of the row this tool writes back.
     deviation_type: str = "RISK_ADJUSTMENT"
