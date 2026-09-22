@@ -7,9 +7,9 @@ any of this code runs). Four endpoints of plain ``httpx`` is a small price for a
 repo that installs anywhere and can be read end-to-end by whoever runs it.
 
     GET    projects                                  -> list_programs
+    GET    assessment                                -> list_assessments
     GET    issues?projectId=…                        -> get_issues
-    POST   issues/{id}/deviations                    -> create_deviation
-    PATCH  issues/{id}/deviations/{deviationId}      -> update_deviation
+    PATCH  issues/{id}                               -> update_issue
 
 Verified against the Paramify OpenAPI spec v0.9.0: paths, query-parameter names,
 response envelope keys, and the deviation request body (required fields plus the
@@ -108,6 +108,18 @@ class ParamifyClient:
         data = self.request("GET", "projects")
         return list(_unwrap(data, "projects"))
 
+    def list_assessments(self) -> list[dict[str, Any]]:
+        """GET /assessment — every assessment in the workspace.
+
+        Used to turn an assessment name into the mechanism element that its
+        issues will carry as ``origin.name``, and to detect the case where
+        several assessments share one mechanism (which makes that name an
+        ambiguous scope). The endpoint is workspace-wide: it exposes no
+        ``projectId``, so it cannot say which program an assessment belongs to.
+        """
+        data = self.request("GET", "assessment")
+        return list(_unwrap(data, "assessments") or _unwrap(data, "assessment"))
+
     def get_issues(
         self,
         *,
@@ -138,29 +150,16 @@ class ParamifyClient:
         data = self.request("GET", "issues", params=params)
         return list(_unwrap(data, "issues"))
 
-    def create_deviation(self, issue_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """POST /issues/{issueId}/deviations
+    def update_issue(self, issue_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /issues/{issueId} — partial update of the issue itself.
 
-        ``body`` carries ``description``, ``method``, ``type``, and
-        ``deviationMetadata`` — the four fields the spec requires, all built by
-        ``core.vuln.deviation``.
-
-        Note: the API appends a trailing newline to ``description`` when it stores
-        one, on create as well as update. ``plan_deviation`` compares stripped
-        descriptions because of it — without that, a rerun never reaches "noop".
+        Used to set ``originalLevel``, the issue's *original risk rating*. That
+        is a different field from the ``adjustedLevel`` carried on a deviation:
+        the deviation records a risk adjustment away from the original rating,
+        whereas this sets the rating itself.
         """
-        data = self.request("POST", f"issues/{issue_id}/deviations", json=body)
+        data = self.request("PATCH", f"issues/{issue_id}", json=body)
         return dict(data or {})
-
-    def update_deviation(
-        self, issue_id: str, deviation_id: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        """PATCH /issues/{issueId}/deviations/{deviationId} — partial update."""
-        data = self.request(
-            "PATCH", f"issues/{issue_id}/deviations/{deviation_id}", json=body
-        )
-        return dict(data or {})
-
 
 def _unwrap(data: Any, key: str) -> Any:
     """List endpoints return ``{"<key>": [...]}``; tolerate a bare list too."""

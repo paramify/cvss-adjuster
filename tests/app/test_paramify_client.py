@@ -93,36 +93,6 @@ def test_missing_api_key_is_caught_before_any_request():
         ParamifyClient(settings, http=http).list_programs()
 
 
-def test_create_deviation_posts_the_body():
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["method"] = request.method
-        seen["path"] = request.url.path
-        seen["body"] = request.read().decode()
-        return httpx.Response(201, json={"id": "dev-1"})
-
-    body = {"description": "NVD CVSS max base score 9.8", "type": "RISK_ADJUSTMENT"}
-    result = _client(handler).create_deviation("ISS-1", body)
-    assert seen["method"] == "POST"
-    assert seen["path"] == "/api/v0/issues/ISS-1/deviations"
-    assert "RISK_ADJUSTMENT" in seen["body"]
-    assert result["id"] == "dev-1"
-
-
-def test_update_deviation_patches_the_right_path():
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["method"] = request.method
-        seen["path"] = request.url.path
-        return httpx.Response(200, json={"id": "dev-1"})
-
-    _client(handler).update_deviation("ISS-1", "dev-1", {"description": "x"})
-    assert seen["method"] == "PATCH"
-    assert seen["path"] == "/api/v0/issues/ISS-1/deviations/dev-1"
-
-
 @pytest.mark.parametrize(
     "status,expected",
     [
@@ -149,13 +119,6 @@ def test_non_json_error_body_still_raises_cleanly():
 
     with pytest.raises(ParamifyAPIError, match="bad gateway"):
         _client(handler).list_programs()
-
-
-def test_empty_response_body_is_none_not_a_crash():
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(204)
-
-    assert _client(handler).create_deviation("ISS-1", {}) == {}
 
 
 def test_nested_error_message_is_surfaced_not_the_raw_object():

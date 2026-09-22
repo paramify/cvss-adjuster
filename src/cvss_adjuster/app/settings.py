@@ -27,13 +27,26 @@ class Settings(BaseSettings):
     paramify_timeout: float = 60.0
     program_id: str | None = None
 
-    # NVD. Without an api key NVD allows 5 requests / 30s instead of 50; the
-    # client's inter-batch pause is tuned for a keyed caller, so a large program
-    # scanned without a key can be throttled.
+    # NVD. Without an api key NVD allows 5 requests / 30s instead of 50. The
+    # client paces itself to whichever limit applies, so an unkeyed run is slow
+    # rather than throttled — but a key is strongly recommended.
     nvd_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
     nvd_api_key: str | None = None
+    # CVEs per `cveIds` request. NVD accepts the comma-joined plural form; 100
+    # keeps URLs well inside any server-side length limit.
+    nvd_batch_size: int = 100
 
-    # Deviation defaults — the shape of the row this tool writes back.
-    deviation_type: str = "RISK_ADJUSTMENT"
-    deviation_method: str = "EXAMINE"
-    deviation_status: str = "PENDING"
+    # Scanner exports (Twistlock container scans). The scanner's own CVSS and
+    # severity columns are rungs 2 and 3 of the fallback ladder and exist
+    # nowhere in the Paramify API, so without this the ladder is NVD-only.
+    scan_dir: str | None = None
+    # Scope: the assessment whose issues get adjusted, by name or id. Resolved
+    # to its mechanism element, which is what an issue carries as
+    # `origin.name` — the only link the API offers from an issue back to an
+    # assessment.
+    assessment: str | None = None
+    # Never lower an existing originalLevel. Off by default: the customer asked
+    # for the ladder to set the original risk rating, which is authoritative in
+    # both directions. Turn on for a run where downgrades need a human first.
+    only_raise: bool = False
+
