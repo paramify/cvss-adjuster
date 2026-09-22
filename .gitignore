@@ -9,3 +9,8 @@ dist/
 .ruff_cache/
 .import_linter_cache/
 .env
+
+# Local run artifacts: these contain real issue data from a live program.
+data/
+*.run.json
+*.run.csv

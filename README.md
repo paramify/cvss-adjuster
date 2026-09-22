@@ -168,6 +168,26 @@ cvss-adjust set-original-levels --assessment my-scan --json \
   | jq -r '.[] | select(.plan.direction == "lower") | .poam_id'
 ```
 
+### Saving a run
+
+`--out PATH` writes the whole run to a file. Redirecting `--json` captures the
+per-issue rows only; the scope assumption, scan counts and summary go to stderr,
+which is exactly the context needed to read the results later. `--out` keeps all
+of it together.
+
+```bash
+cvss-adjust set-original-levels --assessment my-scan \
+  --out run.json --out run.csv
+```
+
+Format follows the extension — `.json` for the full record, `.csv` for a flat
+one-row-per-issue table that opens in a spreadsheet. The flag is repeatable, so
+one run produces both; a run against a real program takes minutes, and needing
+two of them for two formats is a tax.
+
+Files are written before the results are rendered, so they survive a broken pipe
+or an interrupted terminal.
+
 **Exit codes.** `0` = success, *including* a run that found nothing to do. `1` =
 a real error (auth, config, API). `2` = a usage error. An empty result is never
 an error — check the payload, not the exit code.

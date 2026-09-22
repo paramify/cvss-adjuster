@@ -14,6 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 import cvss_adjuster.app.cli.main as main
+from cvss_adjuster.app.report import ReportError
 from cvss_adjuster.app.services import ScopeError
 from cvss_adjuster.app.settings import Settings
 
@@ -241,3 +242,73 @@ def test_bad_scan_dir_fails_loudly(tmp_path):
          "--scan-dir", str(tmp_path / "nope")],
     )
     assert result.exit_code != 0
+
+
+# --- --out -----------------------------------------------------------------
+
+
+def test_out_writes_a_json_record_and_says_where(scans, tmp_path):
+    target = tmp_path / "run.json"
+    result = _run(scans, "--out", str(target))
+
+    assert result.exit_code == 0
+    assert target.exists()
+    assert f"Wrote {target}" in _plain(result.output)
+
+    data = json.loads(target.read_text())
+    assert data["dry_run"] is True
+    assert data["scope"]["assessment"] == "monthly-container-scan"
+    assert data["scans"]["cves"] == 2
+    assert [r["issue_id"] for r in data["results"]] == ["ISS-1"]
+
+
+def test_out_writes_csv_when_the_path_says_so(scans, tmp_path):
+    target = tmp_path / "run.csv"
+    _run(scans, "--out", str(target))
+
+    lines = target.read_text().strip().splitlines()
+    assert lines[0].startswith("poam_id,issue_id,title")
+    assert len(lines) == 2
+
+
+def test_out_records_the_shared_mechanism_assumption(monkeypatch, scans, tmp_path):
+    _ctx(monkeypatch, FakeParamify(assessments=SHARED))
+    target = tmp_path / "run.json"
+    _run(scans, "--out", str(target))
+
+    scope = json.loads(target.read_text())["scope"]
+    assert "only assessment on mechanism" in scope["assumption"]
+    assert scope["mechanism_shared_with"] == ["staging-container-scan"]
+
+
+def test_out_reflects_an_applied_run(scans, tmp_path, paramify):
+    target = tmp_path / "run.json"
+    _run(scans, "--apply", "--out", str(target))
+
+    data = json.loads(target.read_text())
+    assert data["wrote"] is True
+    assert data["results"][0]["applied"] == "set"
+    assert paramify.patches == [("ISS-1", {"originalLevel": "HIGH"})]
+
+
+def test_out_works_alongside_json_on_stdout(scans, tmp_path):
+    target = tmp_path / "run.json"
+    result = _run(scans, "--json", "--out", str(target))
+
+    json.loads(result.stdout)  # stdout is still the rows
+    assert target.exists()  # and the file is the full record
+
+
+def test_a_bad_out_extension_is_a_clean_error(scans, tmp_path):
+    result = _run(scans, "--out", str(tmp_path / "run.txt"))
+    assert isinstance(result.exception, ReportError)
+
+
+def test_out_is_repeatable_so_one_run_produces_both_formats(scans, tmp_path):
+    """A real run takes minutes; needing two of them for two formats is a tax."""
+    as_json, as_csv = tmp_path / "run.json", tmp_path / "run.csv"
+    result = _run(scans, "--out", str(as_json), "--out", str(as_csv))
+
+    assert result.exit_code == 0
+    assert json.loads(as_json.read_text())["summary"]["issues"] == 1
+    assert len(as_csv.read_text().strip().splitlines()) == 2

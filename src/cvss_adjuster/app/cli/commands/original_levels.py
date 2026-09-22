@@ -22,6 +22,7 @@ import typer
 
 from cvss_adjuster.app import output
 from cvss_adjuster.app.cli.context import Context
+from cvss_adjuster.app.report import build_report, write_report
 from cvss_adjuster.app.scans import load_scan_findings, summarize
 from cvss_adjuster.app.services import OriginalLevelResult, resolve_scope
 from cvss_adjuster.app.services import set_original_levels as run_levels
@@ -64,6 +65,15 @@ def set_original_levels(
     dry_run: bool = typer.Option(False, "--dry-run", help="Force a dry run even with --apply"),
     only_raise: bool = typer.Option(
         False, "--only-raise", help="Never lower an existing originalLevel"
+    ),
+    out: list[str] = typer.Option(
+        [],
+        "--out",
+        metavar="PATH",
+        help=(
+            "Write the whole run to a file: .json for the full record, .csv for a "
+            "table. Repeatable, so one run can produce both."
+        ),
     ),
     json_out: output.JSONOption = False,
 ) -> None:
@@ -128,6 +138,21 @@ def set_original_levels(
         only_raise=only_raise,
         write=write,
     )
+
+    if out:
+        # Built and written before rendering, so the files exist even if the
+        # terminal output is interrupted or piped somewhere that goes away. A run
+        # takes minutes against a real program; losing it to a broken pipe is not
+        # a recoverable mistake.
+        report = build_report(
+            results,
+            scope=scope,
+            program_id=program_id or c.settings.program_id,
+            scan_summary=scan_summary,
+            wrote=write,
+        )
+        for target in out:
+            typer.echo(f"Wrote {write_report(target, report, results)}", err=True)
 
     def human(rows: list[OriginalLevelResult]) -> None:
         if not rows:

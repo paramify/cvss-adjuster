@@ -23,6 +23,7 @@ from cvss_adjuster.app.clients.errors import (
     ParamifyConfigError,
     ParamifyError,
 )
+from cvss_adjuster.app.report import ReportError
 from cvss_adjuster.app.services import ScopeError
 
 app = typer.Typer(
@@ -81,6 +82,8 @@ def run() -> None:
         _fail(e, "See required settings in .env.example / the README.")
     except ScopeError as e:
         _fail(e, "Run `cvss-adjust programs` to check auth, then name an assessment.")
+    except ReportError as e:
+        _fail(e)
     except ParamifyError as e:
         _fail(e)
 

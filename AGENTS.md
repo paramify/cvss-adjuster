@@ -58,6 +58,14 @@ cvss-adjust set-original-levels --assessment NAME --apply --json   # writes
 `scanner_severity`, or `unresolved`. `applied` is `would-set` on a dry run,
 `set` after a write, or `noop` / `skip` / `error`.
 
+## Saving a run
+
+`--out PATH` writes the full record — scope, scan counts, summary and every
+result — to `.json`, or a flat table to `.csv`. Repeatable, so one invocation can
+write both. Prefer it over redirecting `--json`, which drops the scope assumption
+and the summary. Files are written before rendering, so they survive an
+interrupted pipe.
+
 ## Scope
 
 - **Required**: `--assessment NAME` (or `ASSESSMENT`) and `--program-id` (or
